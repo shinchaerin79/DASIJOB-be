@@ -15,6 +15,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -134,30 +137,29 @@ public class SearchService {
 
   public List<JobPostingResponse> getSavedSearchResults() {
     log.info("=== 저장된 검색 결과 조회 ===");
-    List<SearchResult> searchResults = searchResultRepository.findAllByOrderByCreatedAtDesc();
+    SearchResult latestSearchResult = searchResultRepository.findFirstByOrderByCreatedAtDesc()
+        .orElse(null);
 
-    if (searchResults.isEmpty()) {
+    if (latestSearchResult == null) {
       log.info("저장된 검색 결과가 없습니다.");
       return List.of();
     }
 
-    SearchResult latestSearchResult = searchResults.get(0);
-
     // 가장 최근 검색 결과의 채용공고 ID 사용
-    List<Long> allJobPostingIds = latestSearchResult.getJobPostingIds();
+    List<Long> jobPostingIds = latestSearchResult.getJobPostingIds();
 
-    log.info("가장 최근 검색 결과에서 총 {}개의 채용공고 발견", allJobPostingIds.size());
+    log.info("가장 최근 검색 결과에서 총 {}개의 채용공고 발견", jobPostingIds.size());
 
-    // JobPosting 조회 및 DTO 변환
-    List<JobPosting> jobPostings = allJobPostingIds.stream()
-        .map(jobPostingRepository::findById)
-        .filter(optional -> optional.isPresent())
-        .map(optional -> optional.get())
-        .collect(Collectors.toList());
+    // 채용공고를 IN 쿼리로 한 번에 조회
+    Map<Long, JobPosting> jobPostingsById = jobPostingRepository.findAllById(jobPostingIds).stream()
+        .collect(Collectors.toMap(JobPosting::getId, Function.identity()));
 
-    return jobPostings.stream()
+    // IN 쿼리가 결과 순서를 보장하지 않으므로 기존 ID 순서로 재정렬
+    return jobPostingIds.stream()
+        .map(jobPostingsById::get)
+        .filter(Objects::nonNull)
         .map(jobPostingMapper::toJobPostingResponse)
-        .collect(Collectors.toList());
+        .toList();
   }
 
   public List<JobPostingResponse> getJobPostingsBySearchResult(Long searchResultId) {
